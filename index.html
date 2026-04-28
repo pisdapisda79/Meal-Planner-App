@@ -265,7 +265,14 @@
         <div class="eyebrow">🍽️ Recipe to Grocery Planner</div>
         <h1>Weekly Meal Planner</h1>
         <p>Add recipes, plan your week, and generate a shopping list. Your information saves automatically in this browser.</p>
-        <button class="btn-secondary" onclick="resetEverything()">Reset Saved App Data</button>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+          <button class="btn-secondary" onclick="exportBackup()">Download Backup</button>
+          <label class="btn-secondary" style="display:inline-block; cursor:pointer;">
+            Restore Backup
+            <input type="file" accept="application/json" onchange="importBackup(event)" style="display:none;" />
+          </label>
+          <button class="btn-secondary" onclick="resetEverything()">Reset Saved App Data</button>
+        </div>
       </div>
       <div class="stats">
         <div class="stat"><strong id="recipeCount">0</strong><span>Recipes</span></div>
@@ -465,6 +472,61 @@
       checkedItems = {};
       save();
       render();
+    }
+
+    function exportBackup() {
+      const backup = {
+        app: "Weekly Meal Planner",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        recipes,
+        selectedRecipeIds,
+        plan,
+        checkedItems
+      };
+
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const date = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `meal-planner-backup-${date}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    function importBackup(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(loadEvent) {
+        try {
+          const backup = JSON.parse(loadEvent.target.result);
+
+          if (!backup.recipes || !Array.isArray(backup.recipes)) {
+            alert("This does not look like a valid meal planner backup file.");
+            return;
+          }
+
+          const confirmImport = confirm("Restore this backup? This will replace the recipes and plan currently saved in this browser.");
+          if (!confirmImport) return;
+
+          recipes = backup.recipes || starterRecipes;
+          selectedRecipeIds = backup.selectedRecipeIds || [];
+          plan = backup.plan || {};
+          checkedItems = backup.checkedItems || {};
+          save();
+          render();
+          alert("Backup restored successfully.");
+        } catch (error) {
+          alert("Could not restore this backup. Please choose a valid backup JSON file.");
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = "";
     }
 
     function resetEverything() {
