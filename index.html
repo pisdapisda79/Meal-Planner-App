@@ -1,462 +1,591 @@
-import React, { useEffect, useMemo, useState } from "react";
-
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner"];
-
-const starterRecipes = [
-  {
-    id: "recipe-1",
-    name: "Chicken Rice Bowl",
-    category: "Dinner",
-    servings: 4,
-    ingredients: [
-      { name: "Chicken breast", qty: 2, unit: "lb" },
-      { name: "Rice", qty: 2, unit: "cups" },
-      { name: "Broccoli", qty: 3, unit: "cups" },
-      { name: "Soy sauce", qty: 4, unit: "tbsp" },
-    ],
-  },
-  {
-    id: "recipe-2",
-    name: "Egg & Potato Breakfast",
-    category: "Breakfast",
-    servings: 2,
-    ingredients: [
-      { name: "Eggs", qty: 4, unit: "pcs" },
-      { name: "Potatoes", qty: 3, unit: "pcs" },
-      { name: "Bell pepper", qty: 1, unit: "pcs" },
-    ],
-  },
-  {
-    id: "recipe-3",
-    name: "Turkey Pasta",
-    category: "Dinner",
-    servings: 4,
-    ingredients: [
-      { name: "Ground turkey", qty: 1, unit: "lb" },
-      { name: "Pasta", qty: 450, unit: "g" },
-      { name: "Tomato sauce", qty: 2, unit: "cups" },
-      { name: "Zucchini", qty: 2, unit: "pcs" },
-    ],
-  },
-];
-
-function makeId() {
-  return `recipe-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function normalizeIngredientName(name) {
-  return name.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function titleCase(text) {
-  return text.replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1));
-}
-
-function parseIngredients(text) {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.split(",").map((part) => part.trim());
-      return {
-        name: parts[0] || "Ingredient",
-        qty: Number(parts[1]) || 1,
-        unit: parts[2] || "",
-      };
-    });
-}
-
-export default function WeeklyMealPlannerApp() {
-  const [recipes, setRecipes] = useState(() => {
-    const saved = localStorage.getItem("mealPlannerRecipes");
-    return saved ? JSON.parse(saved) : starterRecipes;
-  });
-  const [selectedRecipeIds, setSelectedRecipeIds] = useState(() => {
-    const saved = localStorage.getItem("mealPlannerSelectedRecipes");
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [plan, setPlan] = useState(() => {
-    const saved = localStorage.getItem("mealPlannerWeeklyPlan");
-    return saved ? JSON.parse(saved) : {};
-  });
-  const [newRecipe, setNewRecipe] = useState({
-    name: "",
-    category: "Dinner",
-    servings: 4,
-    ingredientsText: "",
-  });
-
-  useEffect(() => {
-    localStorage.setItem("mealPlannerRecipes", JSON.stringify(recipes));
-  }, [recipes]);
-
-  useEffect(() => {
-    localStorage.setItem("mealPlannerSelectedRecipes", JSON.stringify(selectedRecipeIds));
-  }, [selectedRecipeIds]);
-
-  useEffect(() => {
-    localStorage.setItem("mealPlannerWeeklyPlan", JSON.stringify(plan));
-  }, [plan]);
-
-  const selectedRecipes = recipes.filter((recipe) => selectedRecipeIds.includes(recipe.id));
-
-  const shoppingList = useMemo(() => {
-    const plannedRecipeIds = Object.values(plan).filter(Boolean);
-    const plannedRecipes = plannedRecipeIds
-      .map((id) => recipes.find((recipe) => recipe.id === id))
-      .filter(Boolean);
-
-    const grouped = new Map();
-
-    plannedRecipes.forEach((recipe) => {
-      recipe.ingredients.forEach((ingredient) => {
-        const key = `${normalizeIngredientName(ingredient.name)}|${ingredient.unit.trim().toLowerCase()}`;
-        const existing = grouped.get(key);
-        if (existing) {
-          existing.qty += Number(ingredient.qty) || 0;
-          existing.usedIn.push(recipe.name);
-        } else {
-          grouped.set(key, {
-            name: titleCase(normalizeIngredientName(ingredient.name)),
-            qty: Number(ingredient.qty) || 0,
-            unit: ingredient.unit.trim(),
-            usedIn: [recipe.name],
-          });
-        }
-      });
-    });
-
-    return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [plan, recipes]);
-
-  function addRecipe() {
-    if (!newRecipe.name.trim()) return;
-
-    const recipe = {
-      id: makeId(),
-      name: newRecipe.name.trim(),
-      category: newRecipe.category,
-      servings: Number(newRecipe.servings) || 1,
-      ingredients: parseIngredients(newRecipe.ingredientsText),
-    };
-
-    setRecipes((current) => [recipe, ...current]);
-    setSelectedRecipeIds((current) => [...current, recipe.id]);
-    setNewRecipe({ name: "", category: "Dinner", servings: 4, ingredientsText: "" });
-  }
-
-  function toggleRecipe(id) {
-    setSelectedRecipeIds((current) =>
-      current.includes(id) ? current.filter((recipeId) => recipeId !== id) : [...current, id]
-    );
-  }
-
-  function deleteRecipe(id) {
-    setRecipes((current) => current.filter((recipe) => recipe.id !== id));
-    setSelectedRecipeIds((current) => current.filter((recipeId) => recipeId !== id));
-    setPlan((current) => {
-      const updated = { ...current };
-      Object.keys(updated).forEach((key) => {
-        if (updated[key] === id) updated[key] = "";
-      });
-      return updated;
-    });
-  }
-
-  function setMeal(day, mealType, recipeId) {
-    setPlan((current) => ({ ...current, [`${day}-${mealType}`]: recipeId }));
-  }
-
-  function clearPlan() {
-    setPlan({});
-  }
-
-  function resetEverything() {
-    const confirmReset = window.confirm("This will delete your saved recipes and weekly plan. Are you sure?");
-    if (!confirmReset) return;
-    localStorage.removeItem("mealPlannerRecipes");
-    localStorage.removeItem("mealPlannerSelectedRecipes");
-    localStorage.removeItem("mealPlannerWeeklyPlan");
-    setRecipes(starterRecipes);
-    setSelectedRecipeIds([]);
-    setPlan({});
-  }
-
-  function exportShoppingListToPDF() {
-    const plannedMeals = DAYS.flatMap((day) =>
-      MEAL_TYPES.map((mealType) => {
-        const recipeId = plan[`${day}-${mealType}`];
-        const recipe = recipes.find((item) => item.id === recipeId);
-        return recipe ? { day, mealType, recipeName: recipe.name } : null;
-      }).filter(Boolean)
-    );
-
-    const mealRows = plannedMeals.length
-      ? plannedMeals.map((meal) => `<tr><td>${meal.day}</td><td>${meal.mealType}</td><td>${meal.recipeName}</td></tr>`).join("")
-      : `<tr><td colspan="3">No meals scheduled yet.</td></tr>`;
-
-    const listRows = shoppingList.length
-      ? shoppingList
-          .map(
-            (item) =>
-              `<tr><td class="check">☐</td><td>${item.qty} ${item.unit}</td><td>${item.name}</td><td>${[...new Set(item.usedIn)].join(", ")}</td></tr>`
-          )
-          .join("")
-      : `<tr><td colspan="4">No shopping list items yet.</td></tr>`;
-
-    const html = `
-      <!doctype html>
-      <html>
-        <head>
-          <title>Weekly Shopping List</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 32px; color: #111827; }
-            h1 { margin-bottom: 4px; }
-            h2 { margin-top: 28px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-            th, td { border: 1px solid #e5e7eb; padding: 10px; text-align: left; font-size: 14px; }
-            th { background: #f3f4f6; }
-            .check { width: 36px; text-align: center; font-size: 18px; }
-            .note { color: #6b7280; margin-top: 0; }
-            @media print { button { display: none; } body { padding: 16px; } }
-          </style>
-        </head>
-        <body>
-          <button onclick="window.print()" style="padding: 10px 16px; border: 0; border-radius: 10px; background: #111827; color: white; cursor: pointer;">Print / Save as PDF</button>
-          <h1>Weekly Shopping List</h1>
-          <p class="note">Use your browser print window and choose “Save as PDF”.</p>
-
-          <h2>Meal Schedule</h2>
-          <table>
-            <thead><tr><th>Day</th><th>Meal</th><th>Recipe</th></tr></thead>
-            <tbody>${mealRows}</tbody>
-          </table>
-
-          <h2>Shopping List</h2>
-          <table>
-            <thead><tr><th></th><th>Quantity</th><th>Ingredient</th><th>Used In</th></tr></thead>
-            <tbody>${listRows}</tbody>
-          </table>
-        </body>
-      </html>
-    `;
-
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      alert("Please allow pop-ups to export the shopping list.");
-      return;
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weekly Meal Planner App</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --dark: #0f172a;
+      --soft: #f1f5f9;
+      --danger: #dc2626;
     }
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.focus();
-  }
 
-  return (
-    <div className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <header className="rounded-3xl bg-white p-6 shadow-sm md:p-8">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">🍽️ Recipe to Grocery Planner</div>
-              <h1 className="text-3xl font-bold tracking-tight md:text-5xl">Weekly Meal Planner</h1>
-              <p className="mt-3 max-w-2xl text-slate-600">
-                Add your recipes, select what you want this week, assign meals to each day, and create a consolidated shopping list. Your recipes and weekly plan now save automatically in this browser.
-              </p>
-              <button className="mt-4 rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold hover:bg-slate-100" onClick={resetEverything}>
-                Reset Saved App Data
-              </button>
-            </div>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <Stat number={recipes.length} label="Recipes" />
-              <Stat number={selectedRecipes.length} label="Selected" />
-              <Stat number={shoppingList.length} label="Items" />
-            </div>
-          </div>
-        </header>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_1.3fr]">
-          <section className="space-y-6">
-            <div className="rounded-3xl bg-white p-5 shadow-sm md:p-6">
-              <h2 className="mb-4 text-xl font-bold">➕ Add a Recipe</h2>
+    .container {
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 24px;
+    }
 
-              <div className="space-y-3">
-                <input
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-slate-300"
-                  placeholder="Recipe name, e.g. Lemon Chicken"
-                  value={newRecipe.name}
-                  onChange={(event) => setNewRecipe({ ...newRecipe, name: event.target.value })}
-                />
+    header, .card {
+      background: var(--card);
+      border-radius: 24px;
+      box-shadow: 0 1px 8px rgba(15, 23, 42, 0.06);
+    }
 
-                <div className="grid grid-cols-2 gap-3">
-                  <select
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-slate-300"
-                    value={newRecipe.category}
-                    onChange={(event) => setNewRecipe({ ...newRecipe, category: event.target.value })}
-                  >
-                    {MEAL_TYPES.map((type) => (
-                      <option key={type}>{type}</option>
-                    ))}
-                  </select>
-                  <input
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-slate-300"
-                    type="number"
-                    min="1"
-                    placeholder="Servings"
-                    value={newRecipe.servings}
-                    onChange={(event) => setNewRecipe({ ...newRecipe, servings: event.target.value })}
-                  />
-                </div>
+    header {
+      padding: 28px;
+      margin-bottom: 24px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: center;
+    }
 
-                <textarea
-                  className="min-h-36 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-slate-300"
-                  placeholder={"Ingredients format: name, quantity, unit\nExample:\nChicken breast, 2, lb\nRice, 2, cups\nBroccoli, 3, cups"}
-                  value={newRecipe.ingredientsText}
-                  onChange={(event) => setNewRecipe({ ...newRecipe, ingredientsText: event.target.value })}
-                />
+    h1 {
+      margin: 0;
+      font-size: clamp(32px, 5vw, 56px);
+      line-height: 1;
+    }
 
-                <button className="w-full rounded-2xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-700" onClick={addRecipe}>
-                  Add Recipe
-                </button>
-              </div>
-            </div>
+    h2 { margin: 0 0 16px; }
+    p { color: var(--muted); line-height: 1.5; }
 
-            <div className="rounded-3xl bg-white p-5 shadow-sm md:p-6">
-              <h2 className="mb-4 text-xl font-bold">Recipe Library</h2>
-              <div className="space-y-3">
-                {recipes.map((recipe) => {
-                  const selected = selectedRecipeIds.includes(recipe.id);
-                  return (
-                    <div
-                      key={recipe.id}
-                      className={`rounded-2xl border p-4 transition ${selected ? "border-slate-900 bg-slate-100" : "border-slate-200 bg-white"}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <button className="flex-1 text-left" onClick={() => toggleRecipe(recipe.id)}>
-                          <div className="flex items-center gap-2">
-                            <span>{selected ? "✅" : "⚪"}</span>
-                            <span className="font-semibold">{recipe.name}</span>
-                          </div>
-                          <div className="mt-1 text-sm text-slate-500">
-                            {recipe.category} · {recipe.servings} servings · {recipe.ingredients.length} ingredients
-                          </div>
-                        </button>
-                        <button className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-red-500" onClick={() => deleteRecipe(recipe.id)}>
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
+    .eyebrow {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
 
-          <section className="space-y-6">
-            <div className="rounded-3xl bg-white p-5 shadow-sm md:p-6">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <h2 className="text-xl font-bold">📅 Weekly Schedule</h2>
-                <button className="rounded-2xl border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100" onClick={clearPlan}>
-                  Clear Schedule
-                </button>
-              </div>
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 110px);
+      gap: 12px;
+      text-align: center;
+    }
 
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] border-separate border-spacing-0">
-                  <thead>
-                    <tr>
-                      <th className="p-2 text-left text-sm font-semibold text-slate-500">Day</th>
-                      {MEAL_TYPES.map((mealType) => (
-                        <th key={mealType} className="p-2 text-left text-sm font-semibold text-slate-500">{mealType}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {DAYS.map((day) => (
-                      <tr key={day}>
-                        <td className="p-2 align-top font-semibold">{day}</td>
-                        {MEAL_TYPES.map((mealType) => {
-                          const key = `${day}-${mealType}`;
-                          return (
-                            <td key={key} className="p-2 align-top">
-                              <select
-                                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                                value={plan[key] || ""}
-                                onChange={(event) => setMeal(day, mealType, event.target.value)}
-                              >
-                                <option value="">Select recipe</option>
-                                {selectedRecipes.map((recipe) => (
-                                  <option key={recipe.id} value={recipe.id}>{recipe.name}</option>
-                                ))}
-                              </select>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+    .stat {
+      background: var(--soft);
+      border-radius: 18px;
+      padding: 16px;
+    }
 
-            <div className="rounded-3xl bg-white p-5 shadow-sm md:p-6">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <h2 className="text-xl font-bold">🛒 Shopping List</h2>
-                <button
-                  className="rounded-2xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  onClick={exportShoppingListToPDF}
-                  disabled={shoppingList.length === 0}
-                >
-                  Export / Save as PDF
-                </button>
-              </div>
+    .stat strong {
+      display: block;
+      font-size: 26px;
+    }
 
-              {shoppingList.length === 0 ? (
-                <div className="rounded-2xl bg-slate-100 p-6 text-center text-slate-500">
-                  Add recipes to the weekly schedule to generate your shopping list.
-                </div>
-              ) : (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {shoppingList.map((item) => (
-                    <ShoppingItem key={`${item.name}-${item.unit}`} item={item} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
+    .stat span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 0.9fr 1.3fr;
+      gap: 24px;
+    }
+
+    .stack { display: grid; gap: 24px; }
+    .card { padding: 24px; }
+
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 13px 14px;
+      font-size: 15px;
+      outline: none;
+      background: white;
+    }
+
+    textarea {
+      min-height: 150px;
+      resize: vertical;
+    }
+
+    input:focus, textarea:focus, select:focus {
+      border-color: #94a3b8;
+      box-shadow: 0 0 0 3px #e2e8f0;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .form-stack { display: grid; gap: 12px; }
+
+    button {
+      border: 0;
+      border-radius: 16px;
+      padding: 12px 16px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .btn-primary {
+      background: var(--dark);
+      color: white;
+    }
+
+    .btn-secondary {
+      background: white;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .btn-danger {
+      background: #fee2e2;
+      color: var(--danger);
+    }
+
+    .recipe {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      background: white;
+    }
+
+    .recipe.selected {
+      border-color: var(--dark);
+      background: var(--soft);
+    }
+
+    .recipe-main {
+      cursor: pointer;
+      flex: 1;
+    }
+
+    .recipe-title {
+      font-weight: 800;
+      margin-bottom: 5px;
+    }
+
+    .recipe-meta {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0 8px;
+      min-width: 760px;
+    }
+
+    th {
+      color: var(--muted);
+      text-align: left;
+      font-size: 13px;
+      padding: 6px;
+    }
+
+    td {
+      padding: 6px;
+      vertical-align: top;
+    }
+
+    .shopping-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .shop-item {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 14px;
+      background: white;
+      cursor: pointer;
+    }
+
+    .shop-item.checked {
+      background: var(--soft);
+      color: #94a3b8;
+      text-decoration: line-through;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 5px;
+      text-decoration: none;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .empty {
+      padding: 28px;
+      background: var(--soft);
+      border-radius: 18px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    @media (max-width: 900px) {
+      header, .layout { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: repeat(3, 1fr); }
+      .shopping-grid { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: white; }
+      header, .left, .schedule-card, .no-print { display: none !important; }
+      .container { padding: 0; }
+      .layout { display: block; }
+      .card { box-shadow: none; border-radius: 0; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <div class="eyebrow">🍽️ Recipe to Grocery Planner</div>
+        <h1>Weekly Meal Planner</h1>
+        <p>Add recipes, plan your week, and generate a shopping list. Your information saves automatically in this browser.</p>
+        <button class="btn-secondary" onclick="resetEverything()">Reset Saved App Data</button>
       </div>
-    </div>
-  );
-}
-
-function Stat({ number, label }) {
-  return (
-    <div className="rounded-2xl bg-slate-100 p-4">
-      <div className="text-2xl font-bold">{number}</div>
-      <div className="text-xs text-slate-500">{label}</div>
-    </div>
-  );
-}
-
-function ShoppingItem({ item }) {
-  const [checked, setChecked] = useState(false);
-
-  return (
-    <button
-      className={`rounded-2xl border p-4 text-left transition ${checked ? "border-slate-200 bg-slate-100 text-slate-400" : "border-slate-200 bg-white hover:border-slate-400"}`}
-      onClick={() => setChecked(!checked)}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className={`font-semibold ${checked ? "line-through" : ""}`}>
-            {item.qty} {item.unit} {item.name}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">Used in: {[...new Set(item.usedIn)].join(", ")}</div>
-        </div>
-        <span>{checked ? "✕" : "☐"}</span>
+      <div class="stats">
+        <div class="stat"><strong id="recipeCount">0</strong><span>Recipes</span></div>
+        <div class="stat"><strong id="selectedCount">0</strong><span>Selected</span></div>
+        <div class="stat"><strong id="itemCount">0</strong><span>Items</span></div>
       </div>
-    </button>
-  );
-}
+    </header>
+
+    <main class="layout">
+      <section class="stack left">
+        <div class="card">
+          <h2>➕ Add a Recipe</h2>
+          <div class="form-stack">
+            <input id="recipeName" placeholder="Recipe name, e.g. Lemon Chicken" />
+            <div class="form-grid">
+              <select id="recipeCategory">
+                <option>Breakfast</option>
+                <option>Lunch</option>
+                <option selected>Dinner</option>
+              </select>
+              <input id="recipeServings" type="number" min="1" value="4" placeholder="Servings" />
+            </div>
+            <textarea id="ingredientsText" placeholder="Ingredients format: name, quantity, unit&#10;Example:&#10;Chicken breast, 2, lb&#10;Rice, 2, cups&#10;Broccoli, 3, cups"></textarea>
+            <button class="btn-primary" onclick="addRecipe()">Add Recipe</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Recipe Library</h2>
+          <div id="recipeLibrary" class="stack"></div>
+        </div>
+      </section>
+
+      <section class="stack">
+        <div class="card schedule-card">
+          <div class="actions">
+            <h2>📅 Weekly Schedule</h2>
+            <button class="btn-secondary" onclick="clearPlan()">Clear Schedule</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Day</th><th>Breakfast</th><th>Lunch</th><th>Dinner</th></tr>
+              </thead>
+              <tbody id="scheduleBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="actions no-print">
+            <h2>🛒 Shopping List</h2>
+            <button class="btn-primary" onclick="window.print()">Print / Save as PDF</button>
+          </div>
+          <div id="shoppingList"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner"];
+
+    const starterRecipes = [
+      {
+        id: "recipe-1",
+        name: "Chicken Rice Bowl",
+        category: "Dinner",
+        servings: 4,
+        ingredients: [
+          { name: "Chicken breast", qty: 2, unit: "lb" },
+          { name: "Rice", qty: 2, unit: "cups" },
+          { name: "Broccoli", qty: 3, unit: "cups" },
+          { name: "Soy sauce", qty: 4, unit: "tbsp" }
+        ]
+      },
+      {
+        id: "recipe-2",
+        name: "Egg & Potato Breakfast",
+        category: "Breakfast",
+        servings: 2,
+        ingredients: [
+          { name: "Eggs", qty: 4, unit: "pcs" },
+          { name: "Potatoes", qty: 3, unit: "pcs" },
+          { name: "Bell pepper", qty: 1, unit: "pcs" }
+        ]
+      },
+      {
+        id: "recipe-3",
+        name: "Turkey Pasta",
+        category: "Dinner",
+        servings: 4,
+        ingredients: [
+          { name: "Ground turkey", qty: 1, unit: "lb" },
+          { name: "Pasta", qty: 450, unit: "g" },
+          { name: "Tomato sauce", qty: 2, unit: "cups" },
+          { name: "Zucchini", qty: 2, unit: "pcs" }
+        ]
+      }
+    ];
+
+    let recipes = JSON.parse(localStorage.getItem("mealPlannerRecipesWeb") || "null") || starterRecipes;
+    let selectedRecipeIds = JSON.parse(localStorage.getItem("mealPlannerSelectedWeb") || "[]");
+    let plan = JSON.parse(localStorage.getItem("mealPlannerPlanWeb") || "{}");
+    let checkedItems = JSON.parse(localStorage.getItem("mealPlannerCheckedWeb") || "{}");
+
+    function save() {
+      localStorage.setItem("mealPlannerRecipesWeb", JSON.stringify(recipes));
+      localStorage.setItem("mealPlannerSelectedWeb", JSON.stringify(selectedRecipeIds));
+      localStorage.setItem("mealPlannerPlanWeb", JSON.stringify(plan));
+      localStorage.setItem("mealPlannerCheckedWeb", JSON.stringify(checkedItems));
+    }
+
+    function makeId() {
+      return `recipe-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function normalize(text) {
+      return text.trim().toLowerCase().replace(/\s+/g, " ");
+    }
+
+    function titleCase(text) {
+      return text.replace(/\w\S*/g, word => word.charAt(0).toUpperCase() + word.slice(1));
+    }
+
+    function parseIngredients(text) {
+      return text.split("\n")
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => {
+          const parts = line.split(",").map(part => part.trim());
+          return {
+            name: parts[0] || "Ingredient",
+            qty: Number(parts[1]) || 1,
+            unit: parts[2] || ""
+          };
+        });
+    }
+
+    function addRecipe() {
+      const name = document.getElementById("recipeName").value.trim();
+      const category = document.getElementById("recipeCategory").value;
+      const servings = Number(document.getElementById("recipeServings").value) || 1;
+      const ingredientsText = document.getElementById("ingredientsText").value;
+
+      if (!name) {
+        alert("Please enter a recipe name.");
+        return;
+      }
+
+      recipes.unshift({
+        id: makeId(),
+        name,
+        category,
+        servings,
+        ingredients: parseIngredients(ingredientsText)
+      });
+
+      selectedRecipeIds.push(recipes[0].id);
+      document.getElementById("recipeName").value = "";
+      document.getElementById("recipeCategory").value = "Dinner";
+      document.getElementById("recipeServings").value = "4";
+      document.getElementById("ingredientsText").value = "";
+      save();
+      render();
+    }
+
+    function toggleRecipe(id) {
+      selectedRecipeIds = selectedRecipeIds.includes(id)
+        ? selectedRecipeIds.filter(recipeId => recipeId !== id)
+        : [...selectedRecipeIds, id];
+      save();
+      render();
+    }
+
+    function deleteRecipe(id) {
+      if (!confirm("Delete this recipe?")) return;
+      recipes = recipes.filter(recipe => recipe.id !== id);
+      selectedRecipeIds = selectedRecipeIds.filter(recipeId => recipeId !== id);
+      Object.keys(plan).forEach(key => {
+        if (plan[key] === id) plan[key] = "";
+      });
+      save();
+      render();
+    }
+
+    function updateMeal(day, mealType, recipeId) {
+      plan[`${day}-${mealType}`] = recipeId;
+      save();
+      renderShoppingList();
+      renderStats();
+    }
+
+    function clearPlan() {
+      plan = {};
+      checkedItems = {};
+      save();
+      render();
+    }
+
+    function resetEverything() {
+      if (!confirm("This will delete your saved recipes and weekly plan. Are you sure?")) return;
+      recipes = starterRecipes;
+      selectedRecipeIds = [];
+      plan = {};
+      checkedItems = {};
+      save();
+      render();
+    }
+
+    function getSelectedRecipes() {
+      return recipes.filter(recipe => selectedRecipeIds.includes(recipe.id));
+    }
+
+    function getShoppingList() {
+      const grouped = new Map();
+      Object.values(plan).filter(Boolean).forEach(recipeId => {
+        const recipe = recipes.find(item => item.id === recipeId);
+        if (!recipe) return;
+        recipe.ingredients.forEach(ingredient => {
+          const key = `${normalize(ingredient.name)}|${ingredient.unit.trim().toLowerCase()}`;
+          const existing = grouped.get(key);
+          if (existing) {
+            existing.qty += Number(ingredient.qty) || 0;
+            existing.usedIn.push(recipe.name);
+          } else {
+            grouped.set(key, {
+              key,
+              name: titleCase(normalize(ingredient.name)),
+              qty: Number(ingredient.qty) || 0,
+              unit: ingredient.unit.trim(),
+              usedIn: [recipe.name]
+            });
+          }
+        });
+      });
+      return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    function renderStats() {
+      document.getElementById("recipeCount").textContent = recipes.length;
+      document.getElementById("selectedCount").textContent = selectedRecipeIds.length;
+      document.getElementById("itemCount").textContent = getShoppingList().length;
+    }
+
+    function renderRecipes() {
+      const library = document.getElementById("recipeLibrary");
+      library.innerHTML = recipes.map(recipe => {
+        const selected = selectedRecipeIds.includes(recipe.id);
+        return `
+          <div class="recipe ${selected ? "selected" : ""}">
+            <div class="recipe-main" onclick="toggleRecipe('${recipe.id}')">
+              <div class="recipe-title">${selected ? "✅" : "⚪"} ${recipe.name}</div>
+              <div class="recipe-meta">${recipe.category} · ${recipe.servings} servings · ${recipe.ingredients.length} ingredients</div>
+            </div>
+            <button class="btn-danger" onclick="deleteRecipe('${recipe.id}')">Delete</button>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderSchedule() {
+      const selectedRecipes = getSelectedRecipes();
+      const body = document.getElementById("scheduleBody");
+      body.innerHTML = DAYS.map(day => `
+        <tr>
+          <td><strong>${day}</strong></td>
+          ${MEAL_TYPES.map(mealType => {
+            const key = `${day}-${mealType}`;
+            return `
+              <td>
+                <select onchange="updateMeal('${day}', '${mealType}', this.value)">
+                  <option value="">Select recipe</option>
+                  ${selectedRecipes.map(recipe => `
+                    <option value="${recipe.id}" ${plan[key] === recipe.id ? "selected" : ""}>${recipe.name}</option>
+                  `).join("")}
+                </select>
+              </td>
+            `;
+          }).join("")}
+        </tr>
+      `).join("");
+    }
+
+    function toggleChecked(key) {
+      checkedItems[key] = !checkedItems[key];
+      save();
+      renderShoppingList();
+    }
+
+    function renderShoppingList() {
+      const list = getShoppingList();
+      const wrapper = document.getElementById("shoppingList");
+
+      if (!list.length) {
+        wrapper.innerHTML = `<div class="empty">Add recipes to your weekly schedule to generate a shopping list.</div>`;
+        return;
+      }
+
+      wrapper.innerHTML = `
+        <div class="shopping-grid">
+          ${list.map(item => `
+            <div class="shop-item ${checkedItems[item.key] ? "checked" : ""}" onclick="toggleChecked('${item.key}')">
+              <strong>${checkedItems[item.key] ? "☑" : "☐"} ${item.qty} ${item.unit} ${item.name}</strong>
+              <div class="small">Used in: ${[...new Set(item.usedIn)].join(", ")}</div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function render() {
+      renderStats();
+      renderRecipes();
+      renderSchedule();
+      renderShoppingList();
+    }
+
+    render();
+  </script>
+</body>
+</html>
